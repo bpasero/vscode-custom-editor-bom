@@ -21,10 +21,28 @@
         };
     }
 
+    function setHex(hex) {
+        const byteOne = window.document.getElementById('byte-one');
+        byteOne.value = hex[0];
+        
+        const byteTwo = window.document.getElementById('byte-two');
+        byteTwo.value = hex[1];
+        
+        const byteThree = window.document.getElementById('byte-three');
+        byteThree.value = hex[2];
+    }
+
+    let isInit = false;
+
     window.addEventListener('message', e => {
+        if (!isInit) {
+            init();
+            isInit = true;
+        }
+
         switch (e.data.type) {
-            case 'exhost->webview:init':
-                init();
+            case 'exhost->webview:setHex':
+                setHex(e.data.payload);
                 break;
         }
     });
