@@ -31,6 +31,8 @@ class CustomEditorProvider implements vscode.CustomEditorProvider, vscode.Custom
 		webviewPanel.webview.options = { enableScripts: true };
 
 		disposables.push(webviewPanel.webview.onDidReceiveMessage(e => {
+			const oldHex: [number, number, number] = [document.hex[0], document.hex[1], document.hex[2]];
+
 			switch (e.type) {
 				case 'webview->exthost:ready':
 					webviewPanel.webview.postMessage({
@@ -39,16 +41,16 @@ class CustomEditorProvider implements vscode.CustomEditorProvider, vscode.Custom
 					});
 					break;
 				case 'webview->exthost:byte-one':
-					document.setHex(Buffer.from([Number(e.payload), document.hex[1], document.hex[2]]));
-					this._onDidEdit.fire({ document, edit: { payload: e.payload }, label: `Byte One Changed To ${e.payload}` });
+					document.hex = [Number(e.payload), document.hex[1], document.hex[2]];
+					this._onDidEdit.fire({ document, edit: { oldHex, newHex: document.hex.slice(0) as [number, number, number] }, label: `Byte One Changed To ${e.payload}` });
 					break;
 				case 'webview->exthost:byte-two':
-					document.setHex(Buffer.from([document.hex[0], Number(e.payload), document.hex[2]]));
-					this._onDidEdit.fire({ document, edit: { payload: e.payload }, label: `Byte Two Changed To ${e.payload}` });
+					document.hex = [document.hex[0], Number(e.payload), document.hex[2]];
+					this._onDidEdit.fire({ document, edit: { oldHex, newHex: document.hex.slice(0) as [number, number, number] }, label: `Byte Two Changed To ${e.payload}` });
 					break;
 				case 'webview->exthost:byte-three':
-					document.setHex(Buffer.from([document.hex[0], document.hex[1], Number(e.payload)]));
-					this._onDidEdit.fire({ document, edit: { payload: e.payload }, label: `Byte Three Changed To ${e.payload}` });
+					document.hex = [document.hex[0], document.hex[1], Number(e.payload)];
+					this._onDidEdit.fire({ document, edit: { oldHex, newHex: document.hex.slice(0) as [number, number, number] }, label: `Byte Three Changed To ${e.payload}` });
 					break;
 			}
 		}));
@@ -84,19 +86,19 @@ class CustomEditorProvider implements vscode.CustomEditorProvider, vscode.Custom
 	onDidEdit: vscode.Event<vscode.CustomDocumentEditEvent<MyCustomEdit>> = this._onDidEdit.event;
 
 	async save(document: MyCustomDocument, cancellation: vscode.CancellationToken): Promise<void> {
-		console.log("save", document);
+		return document.save();
 	}
 
 	async saveAs(document: MyCustomDocument, targetResource: vscode.Uri): Promise<void> {
-		console.log("saveAs", document, targetResource);
+		return document.save(targetResource);
 	}
 
 	async applyEdits(document: MyCustomDocument, edits: readonly MyCustomEdit[]): Promise<void> {
-		console.log("applyEdits", document, edits);
+		document.applyEdits(edits);
 	}
 
 	async undoEdits(document: MyCustomDocument, edits: readonly MyCustomEdit[]): Promise<void> {
-		console.log("undoEdits", document, edits);
+		document.undoEdits(edits);
 	}
 
 	async revert(document: MyCustomDocument, edits: vscode.CustomDocumentRevert<MyCustomEdit>): Promise<void> {
@@ -109,38 +111,59 @@ class CustomEditorProvider implements vscode.CustomEditorProvider, vscode.Custom
 }
 
 interface MyCustomEdit {
-	payload: string;
+	oldHex: [number, number, number];
+	newHex: [number, number, number];
 }
 
 class MyCustomDocument extends vscode.CustomDocument<MyCustomEdit> {
 
-	public hex: Uint8Array = Buffer.from([]);
+	public hex: [number, number, number] = [0, 0, 0];
 
 	private _onDidChange = new vscode.EventEmitter<void>();
 	onDidChange: vscode.Event<void> = this._onDidChange.event;
 
-	setHex(newHex: Uint8Array): void {
+	setHex(newHex: [number, number, number]): void {
 		const currentHex = this.hex;
 		if (!currentHex) {
 			return;
 		}
 
 		if (newHex[0] !== currentHex[0] || newHex[1] !== currentHex[1] || newHex[2] !== currentHex[2]) {
-			this._onDidChange.fire();
 			this.hex = newHex;
+			this._onDidChange.fire();
 		}
 	}
 
-	async resolve(): Promise<Uint8Array> {
+	async resolve(): Promise<[number, number, number]> {
 		const hex = (await vscode.workspace.fs.readFile(this.uri)).slice(0, 3);
 
-		return hex;
+		return [hex[0], hex[1], hex[2]];
 	}
 
 	async revert(): Promise<void> {
 		this.setHex(await this.resolve());
 	}
+
+	async save(target = this.uri): Promise<void> {
+		const buffer = await vscode.workspace.fs.readFile(this.uri);
+
+		return vscode.workspace.fs.writeFile(target, Buffer.from([...this.hex, ...buffer.slice(3)]));
+	}
+
+	applyEdits(edits: readonly MyCustomEdit[]): void {
+		for (const edit of edits) {
+			this.setHex(edit.newHex);
+		}
+	}
+
+	undoEdits(edits: readonly MyCustomEdit[]): void {
+		for (const edit of edits) {
+			this.setHex(edit.oldHex);
+		}
+	}
 }
+
+
 
 // this method is called when your extension is deactivated
 export function deactivate() { }
