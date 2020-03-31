@@ -106,7 +106,7 @@ class CustomEditorProvider implements vscode.CustomEditorProvider, vscode.Custom
 	}
 
 	async backup(document: MyCustomDocument, cancellation: vscode.CancellationToken): Promise<void> {
-		console.log("backup", document);
+		return document.backup();
 	}
 }
 
@@ -118,6 +118,8 @@ interface MyCustomEdit {
 class MyCustomDocument extends vscode.CustomDocument<MyCustomEdit> {
 
 	public hex: [number, number, number] = [0, 0, 0];
+
+	private get backupUri() { return this.uri.with({ path: `${this.uri.path}.bak` }); }
 
 	private _onDidChange = new vscode.EventEmitter<void>();
 	onDidChange: vscode.Event<void> = this._onDidChange.event;
@@ -135,19 +137,30 @@ class MyCustomDocument extends vscode.CustomDocument<MyCustomEdit> {
 	}
 
 	async resolve(): Promise<[number, number, number]> {
-		const hex = (await vscode.workspace.fs.readFile(this.uri)).slice(0, 3);
+		let hex;
+		try {
+			hex = (await vscode.workspace.fs.readFile(this.backupUri)).slice(0, 3);
+		} catch (error) {
+			hex = (await vscode.workspace.fs.readFile(this.uri)).slice(0, 3);
+		}
 
 		return [hex[0], hex[1], hex[2]];
 	}
 
 	async revert(): Promise<void> {
 		this.setHex(await this.resolve());
+
+		return this.delBackup();
 	}
 
-	async save(target = this.uri): Promise<void> {
+	async save(target = this.uri, delBackup = true): Promise<void> {
 		const buffer = await vscode.workspace.fs.readFile(this.uri);
 
-		return vscode.workspace.fs.writeFile(target, Buffer.from([...this.hex, ...buffer.slice(3)]));
+		await vscode.workspace.fs.writeFile(target, Buffer.from([...this.hex, ...buffer.slice(3)]));
+
+		if (delBackup) {
+			return this.delBackup();
+		}
 	}
 
 	applyEdits(edits: readonly MyCustomEdit[]): void {
@@ -159,6 +172,18 @@ class MyCustomDocument extends vscode.CustomDocument<MyCustomEdit> {
 	undoEdits(edits: readonly MyCustomEdit[]): void {
 		for (const edit of edits) {
 			this.setHex(edit.oldHex);
+		}
+	}
+
+	backup(): Promise<void> {
+		return this.save(this.backupUri, false);
+	}
+
+	async delBackup(): Promise<void> {
+		try {
+			await vscode.workspace.fs.delete(this.backupUri);
+		} catch (error) {
+			// ignore if not exists
 		}
 	}
 }
