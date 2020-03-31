@@ -10,7 +10,7 @@
 		"Other"
 	],
 	"activationEvents": [
-		"onCommand:extension.helloWorld"
+		"onCustomEditor:binary.editor"
 	],
 	"main": "./out/extension.js",
 	"contributes": {
@@ -18,6 +18,17 @@
 			{
 				"command": "extension.helloWorld",
 				"title": "Hello World"
+			}
+		],
+		"customEditors": [
+			{
+				"viewType": "binary.editor",
+				"displayName": "Binary Editor",
+				"selector": [
+					{
+						"filenamePattern": "*.bin"
+					}
+				]
 			}
 		]
 	},
